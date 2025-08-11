@@ -110,8 +110,8 @@ Individual testing modules for validating each hardware component separately.
    - ESP32Servo
    - PubSubClient
    - ArduinoJson
-   - ESP32-audioI2S
-   - Adafruit SSD1306 (for OLED tests)
+   - ESP32-audioI2S-master
+   - Adafruit_SH110X (for OLED tests)
    ```
 
 ### Installation:
