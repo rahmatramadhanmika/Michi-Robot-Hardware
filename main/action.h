@@ -20,7 +20,13 @@ public:
   void detectWakeword();
   void hearingQuestion();
   void thinking();
+  void resetNeckState(); // Add method to reset neck state
   void update(); // Handle ongoing animations for hands, neck, and eyes
+  
+  // Getter methods for maintenance access
+  Hands* getHands() { return &hands; }
+  Neck* getNeck() { return &neck; }
+  eyes* getEyes() { return &myEyes; }
 
 private:
   Hands hands;

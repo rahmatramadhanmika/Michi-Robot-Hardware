@@ -9,6 +9,7 @@
 #include <ArduinoJson.h>
 #include <Audio.h>
 #include "action.h"
+#include "maintenance.h"
 
 const uint32_t SAMPLE_RATE = 16000;
 const uint16_t SAMPLE_BITS = 16;
@@ -22,6 +23,7 @@ const char *SAD_FOLDER = "/sad";
 const char *GREETINGS_FOLDER = "/greetings";
 const char *DETECTING_FOLDER = "/detecting";
 const char *HEARING_FOLDER = "/hearing";
+const char *THINKING_FOLDER = "/thinking";
 const char *PRODUCT_FOLDER = "/product";
 
 #define I2S_WS 25
@@ -63,6 +65,7 @@ enum State {
   DETECTING_WAKE_WORD,
   TRANSITION,
   RECORDING_CONVERSATION,
+  THINKING,
   PLAYING_RESPONSE,
   SLEEP,
   MAD,
@@ -87,19 +90,21 @@ const size_t bufferSize = 512;
 uint8_t buffer[bufferSize];
 String musicFiles[20];
 int musicFileCount = 0;
-String happyFiles[20];
+String happyFiles[10];
 int happyFileCount = 0;
-String madFiles[20];
+String madFiles[10];
 int madFileCount = 0;
-String sadFiles[20];
+String sadFiles[10];
 int sadFileCount = 0;
-String greetingsFiles[20];
+String greetingsFiles[10];
 int greetingsFileCount = 0;
-String detectingFiles[20];
+String detectingFiles[10];
 int detectingFileCount = 0;
-String hearingFiles[20];
+String hearingFiles[10];
 int hearingFileCount = 0;
-String productFiles[20];
+String thinkingFiles[10];
+int thinkingFileCount = 0;
+String productFiles[10];
 int productFileCount = 0;
 
 WiFiClient wifiClient;
@@ -107,6 +112,7 @@ PubSubClient mqttClient(wifiClient);
 Audio audio;
 i2s_chan_handle_t rx_handle = NULL;
 Action robot;
+Maintenance maintenance;
 
 void initConnection() {
   WiFi.begin(ssid, password);
@@ -277,6 +283,8 @@ void callback(char *topic, byte *message, unsigned int length) {
     msgTemp += (char)message[i];
   }
   Serial.println();
+  Serial.printf("DEBUG: Current robot state at callback start: %d\n", currentState);
+  
   if (String(topic) == "testtopic/mwtt") {
     StaticJsonDocument<200> doc;
     DeserializationError error = deserializeJson(doc, msgTemp);
@@ -285,6 +293,26 @@ void callback(char *topic, byte *message, unsigned int length) {
       Serial.println(error.c_str());
       return;
     }
+    
+    // Handle maintenance commands first (in SLEEP state only)
+    if (doc.containsKey("command") && currentState == SLEEP) {
+      String command = doc["command"].as<String>();
+      Serial.printf("Received maintenance command: %s\n", command.c_str());
+      Serial.printf("Current state before maintenance: %d (SLEEP)\n", currentState);
+      
+      // Process maintenance commands when in sleep mode
+      if (command.startsWith("test_")) {
+        String maintenanceCommand = command.substring(5); // Remove "test_" prefix
+        Serial.printf("Processing maintenance command: %s\n", maintenanceCommand.c_str());
+        maintenance.processCommand(maintenanceCommand);
+        
+        // Explicitly ensure we stay in SLEEP state after maintenance
+        currentState = SLEEP;
+        Serial.printf("State after maintenance: %d (SLEEP) - ready for next command\n", currentState);
+        return; // Don't process other commands when in maintenance mode
+      }
+    }
+    
     if (doc.containsKey("response")) {
       String response = doc["response"].as<String>();
       if (response == "talk") {
@@ -294,14 +322,27 @@ void callback(char *topic, byte *message, unsigned int length) {
           writeWavHeader(recordFile, totalBytesWritten);
           recordFile.close();
           Serial.println("Conversation finish. Uploading...");
+          currentState = THINKING;  // Set to THINKING state
+          stateStartTime = millis();
+          digitalWrite(LED_PIN, HIGH);
           robot.thinking();  // Set thinking animation during upload
+          audio.stopSong();  // Stop any ongoing audio
+          playRandomAudio(thinkingFiles, thinkingFileCount, "thinking");
+          
+          // Give time for thinking animation and audio to start
+          for (int i = 0; i < 50; i++) {
+            robot.update();  // Update thinking animation
+            audio.loop();    // Keep audio playing
+            delay(50);       // Small delay to show animation
+          }
+          
           String response = uploadToServer(FILENAME, serverUrl);
           if (!response.isEmpty()) {
             currentState = PLAYING_RESPONSE;
             stateStartTime = millis();
             digitalWrite(LED_PIN, HIGH);
             robot.answer();
-            audio.stopSong();  // Stop any ongoing audio
+            audio.stopSong();  // Stop thinking audio before response
             audio.connecttohost(streamURL);
           } else {
             currentState = IDLE;
@@ -358,8 +399,8 @@ void callback(char *topic, byte *message, unsigned int length) {
         robot.happy();
         audio.stopSong();  // Stop any ongoing audio
         playRandomAudio(greetingsFiles, greetingsFileCount, "greetings");
-      } else if (response == "product" && currentState != SLEEP) {
-        Serial.println("Received 'product' command - entering product detection mode");
+      } else if (response == "deteksi" && currentState != SLEEP) {
+        Serial.println("Received 'deteksi' command - entering product detection mode");
         currentState = PRODUCT;
         stateStartTime = millis();
         digitalWrite(LED_PIN, HIGH);
@@ -368,7 +409,7 @@ void callback(char *topic, byte *message, unsigned int length) {
       }
 
       // Handle product label commands (only when in PRODUCT state)
-      if (currentState == PRODUCT && response != "product" && response != "talk" && response != "sleep" && response != "mad" && response != "sad" && response != "happy" && response != "dance" && response != "greetings") {
+      if (currentState == PRODUCT && response != "deteksi" && response != "talk" && response != "sleep" && response != "mad" && response != "sad" && response != "happy" && response != "dance" && response != "greetings") {
         Serial.printf("Received product label: %s\n", response.c_str());
         playProductAudio(response);
       }
@@ -378,6 +419,17 @@ void callback(char *topic, byte *message, unsigned int length) {
     if (doc.containsKey("command")) {
       String command = doc["command"].as<String>();
       Serial.printf("Received command: %s\n", command.c_str());
+      Serial.printf("Current state: %d\n", currentState);
+
+      // Tambahan: handle command idle
+      if (command == "idle") {
+        Serial.println("Received 'idle' command. Setting state to IDLE.");
+        currentState = IDLE;
+        digitalWrite(LED_PIN, LOW);
+        lastActionTime = millis();
+        robot.idle();
+        return;
+      }
 
       if (currentState == PRODUCT) {
         Serial.printf("Processing product command: %s\n", command.c_str());
@@ -386,8 +438,17 @@ void callback(char *topic, byte *message, unsigned int length) {
         productLabel.toLowerCase();
         productLabel.replace(" ", "");
         playProductAudio(productLabel);
+      } else if (currentState == SLEEP && command.startsWith("test_")) {
+        // This should have been handled above, but add as fallback
+        Serial.println("Fallback: Processing maintenance command in secondary handler");
+        String maintenanceCommand = command.substring(5);
+        maintenance.processCommand(maintenanceCommand);
+        currentState = SLEEP; // Ensure we stay in SLEEP
       } else {
-        Serial.printf("Command received but not in PRODUCT state. Current state: %d\n", currentState);
+        Serial.printf("Command received but not in appropriate state. Current state: %d\n", currentState);
+        if (currentState == SLEEP) {
+          Serial.println("Robot is in SLEEP state but command doesn't start with 'test_'");
+        }
       }
     }
   }
@@ -506,6 +567,9 @@ void setup() {
   // Initialize Action
   robot.begin();
 
+  // Initialize Maintenance
+  maintenance.begin(&robot, robot.getHands(), robot.getNeck(), robot.getEyes(), &audio, &audioFinished, &mqttClient);
+
   // Initialize SD Card
   SPI.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
   if (!SD.begin(SD_CS)) {
@@ -537,6 +601,9 @@ void setup() {
   if (!SD.exists(HEARING_FOLDER)) {
     SD.mkdir(HEARING_FOLDER);
   }
+  if (!SD.exists(THINKING_FOLDER)) {
+    SD.mkdir(THINKING_FOLDER);
+  }
   if (!SD.exists(PRODUCT_FOLDER)) {
     SD.mkdir(PRODUCT_FOLDER);
   }
@@ -549,8 +616,12 @@ void setup() {
   loadAudioFiles(GREETINGS_FOLDER, greetingsFiles, greetingsFileCount);
   loadAudioFiles(DETECTING_FOLDER, detectingFiles, detectingFileCount);
   loadAudioFiles(HEARING_FOLDER, hearingFiles, hearingFileCount);
+  loadAudioFiles(THINKING_FOLDER, thinkingFiles, thinkingFileCount);
   loadAudioFiles(PRODUCT_FOLDER, productFiles, productFileCount);
   randomSeed(analogRead(0));
+
+  // Initialize maintenance system after SD card is ready
+  maintenance.initializeAfterSD();
 
   // Initialize I2S for recording
   setupI2S();
@@ -578,11 +649,12 @@ void loop() {
   // Handle sleep state exclusively
   if (currentState == SLEEP) {
     robot.standBy();
+    maintenance.checkSerialCommands();  // Check for maintenance commands during sleep
     return;
   }
 
   // Handle audio streaming - but exclude TRANSITION state from auto-transitioning to IDLE
-  if (currentState == PLAYING_RESPONSE || currentState == DANCE || currentState == HAPPY || currentState == MAD || currentState == SAD || currentState == GREETINGS || currentState == PRODUCT || currentState == PRODUCT_DETECTED || currentState == DETECTING_WAKE_WORD || currentState == TRANSITION || currentState == RECORDING_CONVERSATION) {
+  if (currentState == PLAYING_RESPONSE || currentState == DANCE || currentState == HAPPY || currentState == MAD || currentState == SAD || currentState == GREETINGS || currentState == PRODUCT || currentState == PRODUCT_DETECTED || currentState == DETECTING_WAKE_WORD || currentState == TRANSITION || currentState == RECORDING_CONVERSATION || currentState == THINKING) {
     if (currentTime - lastAudioTime >= 1) {
       lastAudioTime = currentTime;
       audio.loop();
@@ -599,6 +671,11 @@ void loop() {
           Serial.println("Product state audio finished - staying in PRODUCT state");
           audioFinished = false;
           // Stay in PRODUCT state, don't transition to IDLE
+        } else if (currentState == THINKING) {
+          Serial.println("Thinking audio finished - continuing thinking state");
+          audioFinished = false;
+          // Stay in THINKING state, don't transition to IDLE
+          // Optionally play another thinking audio if needed
         } else if (currentState != DETECTING_WAKE_WORD && currentState != RECORDING_CONVERSATION && currentState != TRANSITION) {
           Serial.println("Audio stream finished.");
           audioFinished = false;
@@ -612,7 +689,7 @@ void loop() {
   }
 
   // Audio recording and state machine
-  if (currentState != PLAYING_RESPONSE && currentState != DANCE && currentState != HAPPY && currentState != MAD && currentState != SAD && currentState != GREETINGS && currentState != PRODUCT && currentState != PRODUCT_DETECTED) {
+  if (currentState != PLAYING_RESPONSE && currentState != DANCE && currentState != HAPPY && currentState != MAD && currentState != SAD && currentState != GREETINGS && currentState != PRODUCT && currentState != PRODUCT_DETECTED && currentState != THINKING) {
     size_t bytesRead;
     esp_err_t read_result = i2s_channel_read(rx_handle, buffer, bufferSize, &bytesRead, portMAX_DELAY);
     if (read_result != ESP_OK) {
@@ -699,14 +776,27 @@ void loop() {
           recordFile.seek(0);
           writeWavHeader(recordFile, totalBytesWritten);
           recordFile.close();
+          currentState = THINKING;  // Set to THINKING state
+          stateStartTime = currentTime;
+          digitalWrite(LED_PIN, HIGH);
           robot.thinking();  // Set thinking animation during upload
+          audio.stopSong();  // Stop any ongoing audio
+          playRandomAudio(thinkingFiles, thinkingFileCount, "thinking");
+          
+          // Give time for thinking animation and audio to start
+          for (int i = 0; i < 50; i++) {
+            robot.update();  // Update thinking animation
+            audio.loop();    // Keep audio playing
+            delay(50);       // Small delay to show animation
+          }
+          
           String response = uploadToServer(FILENAME, serverUrl);
           if (!response.isEmpty()) {
             currentState = PLAYING_RESPONSE;
             stateStartTime = currentTime;
             digitalWrite(LED_PIN, HIGH);
             robot.answer();
-            audio.stopSong();  // Stop any ongoing audio before streaming response
+            audio.stopSong();  // Stop thinking audio before streaming response
             if (!connectToAudioStream()) {
               Serial.println("Failed to connect to the audio stream.");
               currentState = IDLE;
@@ -725,6 +815,7 @@ void loop() {
         break;
 
       case PLAYING_RESPONSE:
+      case THINKING:
       case HAPPY:
       case MAD:
       case SAD:

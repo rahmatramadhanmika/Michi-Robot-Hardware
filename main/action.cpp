@@ -9,6 +9,9 @@ void Action::begin() {
   neck.begin();
   myEyes.begin();
   myEyes.centerEyes();  // Initialize eyes to normal state
+  
+  // Set eyes reference in neck for coordinated movement
+  neck.setEyesReference(&myEyes);
 }
 
 void Action::idle() {
@@ -94,8 +97,13 @@ void Action::thinking() {
   myEyes.centerEyes();        // Immediately open eyes to default state
   currentAction = '9';
   hands.standBy();
+  neck.resetState();          // Reset neck state before starting thinking
   neck.thinking();
   myEyes.startQuestion();
+}
+
+void Action::resetNeckState() {
+  neck.resetState();
 }
 
 void Action::update() {
@@ -104,6 +112,7 @@ void Action::update() {
       hands.idle();
       neck.idle();
       myEyes.updateIdle();
+      myEyes.updateMoveBigEye();  // Handle big eye movement during idle
       myEyes.updateBlink();  // Handle any ongoing blinks
       break;
     case '2':

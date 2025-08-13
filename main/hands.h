@@ -38,12 +38,12 @@ private:
   // Idle mode variables
   int idleCombo = 1;
   unsigned long lastComboChange = 0;
-  const long minComboDuration = 3000;
-  const long maxComboDuration = 10000;
+  const long minComboDuration = 2000;
+  const long maxComboDuration = 5000;
   unsigned long currentComboDuration = minComboDuration;
   bool isTransitioning = false;
   unsigned long transitionStartTime = 0;
-  const long transitionPause = 1000;
+  const long transitionPause = 500;
 
   // Happy mode variables
   int happyCombo = 1;

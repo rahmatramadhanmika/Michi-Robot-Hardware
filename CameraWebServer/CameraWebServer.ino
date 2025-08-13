@@ -5,8 +5,8 @@
 
 #include "camera_pins.h"
 
-const char* ssid = "WIFI_Raka1";
-const char* password = "12345678";
+const char* ssid = "iPhone 6s";
+const char* password = "hihiha123";
 
 void startCameraServer();
 void setupLedFlash(int pin);
@@ -79,8 +79,8 @@ void setup() {
     s->set_bpc(s, 0);                // Disable bad pixel correction
     s->set_wpc(s, 0);                // Disable white pixel correction
     s->set_lenc(s, 0);               // Disable lens correction
-    s->set_hmirror(s, 0);            // No mirror
-    s->set_vflip(s, 0);              // No flip
+    s->set_hmirror(s, 1);            // No mirror
+    s->set_vflip(s, 1);              // No flip
     s->set_colorbar(s, 0);           // Disable color bar
     
     Serial.println("Sensor configured with ultra-stabilize mode!");

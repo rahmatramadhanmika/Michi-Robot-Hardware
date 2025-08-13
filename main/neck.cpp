@@ -1,4 +1,5 @@
 #include "neck.h"
+#include "eyes.h"  // Include eyes header
 
 Neck::Neck(int servoPin)
   : servoPin(servoPin) {
@@ -6,8 +7,12 @@ Neck::Neck(int servoPin)
 
 void Neck::begin() {
   servo1.attach(servoPin);
-  servo1.write(90);
+  servo1.write(80);
   randomSeed(analogRead(0));
+}
+
+void Neck::setEyesReference(eyes* eyesPtr) {
+  this->eyesPtr = eyesPtr;
 }
 
 void Neck::idle() {
@@ -17,8 +22,8 @@ void Neck::idle() {
   }
   lastUpdateMillis = currentMillis;
 
-  if (!waitingAtTarget && !returningToCenter && currentMillis - lastMoveMillis >= random(5000, 10001)) {
-    targetDegrees = random(45, 136);
+  if (!waitingAtTarget && !returningToCenter && currentMillis - lastMoveMillis >= random(3000, 70001)) {
+    targetDegrees = random(30, 151);
     lastMoveMillis = currentMillis;
   }
 
@@ -32,11 +37,20 @@ void Neck::idle() {
     if (posDegrees == targetDegrees) {
       waitingAtTarget = true;
       waitStartMillis = currentMillis;
+      
+      // Trigger eye movement based on neck position during idle
+      if (eyesPtr != nullptr) {
+        if (posDegrees >= 110) {
+          eyesPtr->startMoveBigEye(1);  // Look right when neck turns right
+        } else if (posDegrees <= 50) {
+          eyesPtr->startMoveBigEye(-1); // Look left when neck turns left
+        }
+      }
     }
   } else if (waitingAtTarget && currentMillis - waitStartMillis >= random(2000, 3001)) {
     waitingAtTarget = false;
     returningToCenter = true;
-    targetDegrees = 90;
+    targetDegrees = 80;
   } else if (returningToCenter && posDegrees != targetDegrees) {
     if (posDegrees < targetDegrees) {
       posDegrees++;
@@ -77,7 +91,7 @@ void Neck::answer() {
   } else if (waitingAtTarget && currentMillis - waitStartMillis >= random(1000, 2001)) {
     waitingAtTarget = false;
     returningToCenter = true;
-    targetDegrees = 90;
+    targetDegrees = 80;
   } else if (returningToCenter && posDegrees != targetDegrees) {
     if (posDegrees < targetDegrees) {
       posDegrees++;
@@ -119,7 +133,7 @@ void Neck::sad() {
   } else if (waitingAtTarget && currentMillis - waitStartMillis >= random(1000, 2001)) {
     waitingAtTarget = false;
     returningToCenter = true;
-    targetDegrees = 90;
+    targetDegrees = 80;
   } else if (returningToCenter && posDegrees != targetDegrees) {
     if (posDegrees < targetDegrees) {
       posDegrees++;
@@ -160,7 +174,7 @@ void Neck::happy() {
   } else if (waitingAtTarget && currentMillis - waitStartMillis >= random(1000, 2001)) {
     waitingAtTarget = false;
     returningToCenter = true;
-    targetDegrees = 90;
+    targetDegrees = 80;
   } else if (returningToCenter && posDegrees != targetDegrees) {
     if (posDegrees < targetDegrees) {
       posDegrees++;
@@ -182,10 +196,10 @@ void Neck::standBy() {
   }
   lastUpdateMillis = currentMillis;
 
-  if (posDegrees != 90) {
-    if (posDegrees > 90) {
+  if (posDegrees != 80) {
+    if (posDegrees > 80) {
       posDegrees--;
-    } else if (posDegrees < 90) {
+    } else if (posDegrees < 80) {
       posDegrees++;
     }
     servo1.write(posDegrees);
@@ -199,10 +213,12 @@ void Neck::detectWakeword() {
   }
   lastUpdateMillis = currentMillis;
 
-  // If at 90 degrees and no target set, start new cycle after random delay (2-3 seconds)
-  if (!waitingAtTarget && !returningToCenter && posDegrees == 90 && targetDegrees == 90 && currentMillis - lastMoveMillis >= random(2000, 3001)) {
-    targetDegrees = 120; // Start by moving to 120 degrees
+  // Start new cycle after random delay (2-3 seconds) - randomly choose 120° or 40°
+  if (!waitingAtTarget && !returningToCenter && currentMillis - lastMoveMillis >= random(2000, 3001)) {
+    // Randomly choose between 120° (right) or 40° (left)
+    targetDegrees = random(0, 2) == 0 ? 120 : 40;
     lastMoveMillis = currentMillis;
+    Serial.printf("DetectWakeword: Starting cycle - moving to %d°\n", targetDegrees);
   }
 
   // Move towards target
@@ -216,20 +232,18 @@ void Neck::detectWakeword() {
     if (posDegrees == targetDegrees) {
       waitingAtTarget = true;
       waitStartMillis = currentMillis;
+      Serial.printf("DetectWakeword: Reached target %d°, waiting...\n", targetDegrees);
     }
   }
-  // Wait at target (120 or 60 degrees) for 1 second
-  else if (waitingAtTarget && currentMillis - waitStartMillis >= 1000) {
+  // Wait at target (120° or 40°) for 1-2 seconds, then return to center
+  else if (waitingAtTarget && currentMillis - waitStartMillis >= random(1000, 2001)) {
     waitingAtTarget = false;
-    if (targetDegrees == 120) {
-      targetDegrees = 60; // Move to 60 degrees
-    } else if (targetDegrees == 60) {
-      targetDegrees = 90; // Return to 90 degrees
-      returningToCenter = true;
-    }
+    returningToCenter = true;
+    targetDegrees = 80; // Always return to center (80°)
+    Serial.println("DetectWakeword: Returning to center 80°");
     lastMoveMillis = currentMillis;
   }
-  // Return to center (90 degrees)
+  // Return to center (80 degrees)
   else if (returningToCenter && posDegrees != targetDegrees) {
     if (posDegrees < targetDegrees) {
       posDegrees++;
@@ -240,6 +254,7 @@ void Neck::detectWakeword() {
     if (posDegrees == targetDegrees) {
       returningToCenter = false;
       lastMoveMillis = currentMillis; // Reset timer for random delay
+      Serial.println("DetectWakeword: Returned to center 80°, cycle complete");
     }
   }
 }
@@ -251,21 +266,15 @@ void Neck::thinking() {
   }
   lastUpdateMillis = currentMillis;
 
-  // If at target and waiting, check if wait time (3-5 seconds) has elapsed
-  if (waitingAtTarget && currentMillis - waitStartMillis >= random(3000, 5001)) {
-    waitingAtTarget = false;
+  // Start new thinking cycle after random delay (3-5 seconds)
+  if (!waitingAtTarget && !returningToCenter && currentMillis - lastMoveMillis >= random(1000, 3001)) {
     targetDegrees = random(30, 151); // Select new random target between 30 and 150 degrees
     lastMoveMillis = currentMillis;
-  }
-
-  // If not waiting and at target, start waiting
-  if (!waitingAtTarget && posDegrees == targetDegrees) {
-    waitingAtTarget = true;
-    waitStartMillis = currentMillis;
+    Serial.printf("Thinking: Starting new cycle - moving to %d°\n", targetDegrees);
   }
 
   // Move towards target
-  if (posDegrees != targetDegrees && !waitingAtTarget) {
+  if (posDegrees != targetDegrees && !waitingAtTarget && !returningToCenter) {
     if (posDegrees < targetDegrees) {
       posDegrees++;
     } else {
@@ -275,9 +284,39 @@ void Neck::thinking() {
     if (posDegrees == targetDegrees) {
       waitingAtTarget = true;
       waitStartMillis = currentMillis;
-      lastMoveMillis = currentMillis; // Reset timer for next delay
+      Serial.printf("Thinking: Reached target %d°, waiting...\n", targetDegrees);
+    }
+  } 
+  // Wait at target for 2-3 seconds, then return to center
+  else if (waitingAtTarget && currentMillis - waitStartMillis >= random(2000, 3001)) {
+    waitingAtTarget = false;
+    returningToCenter = true;
+    targetDegrees = 80; // Return to center position
+    Serial.println("Thinking: Returning to center 80°");
+  } 
+  // Return to center position
+  else if (returningToCenter && posDegrees != targetDegrees) {
+    if (posDegrees < targetDegrees) {
+      posDegrees++;
+    } else {
+      posDegrees--;
+    }
+    servo1.write(posDegrees);
+    if (posDegrees == targetDegrees) {
+      returningToCenter = false;
+      lastMoveMillis = currentMillis; // Reset timer for next thinking cycle
+      Serial.println("Thinking: Returned to center, thinking cycle complete");
     }
   }
+}
+
+void Neck::resetState() {
+  waitingAtTarget = false;
+  returningToCenter = false;
+  targetDegrees = 80;
+  lastMoveMillis = millis();
+  lastUpdateMillis = millis();
+  Serial.println("Neck: State reset completed");
 }
 
 void Neck::testNeck() {
