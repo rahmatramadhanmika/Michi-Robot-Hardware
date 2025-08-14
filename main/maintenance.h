@@ -25,6 +25,7 @@ public:
   void showHelp();
   void returnToSleepState();  // Helper function to return robot to sleep state
   void stopTest();            // Stop any running test
+  void keepSystemResponsive();  // Helper to maintain MQTT processing during tests
 
 private:
   Action* robot;
@@ -42,7 +43,6 @@ private:
   int musicFileCount = 0;
 
   void loadMusicFiles();
-  void keepSystemResponsive();  // Helper to maintain MQTT processing during tests
 };
 
 #endif

@@ -26,6 +26,7 @@ const char *HEARING_FOLDER = "/hearing";
 const char *THINKING_FOLDER = "/thinking";
 const char *PRODUCT_FOLDER = "/product";
 const char *INTRODUCTION_FOLDER = "/introduction";
+const char *GOODBYE_FOLDER = "/goodbye";
 
 #define I2S_WS 25
 #define I2S_SD 33
@@ -79,6 +80,7 @@ enum State {
   PRODUCT,
   PRODUCT_DETECTED,
   INTRODUCTION,
+  GOODBYE,
 };
 
 unsigned long lastSoundTime = 0;
@@ -112,6 +114,8 @@ String productFiles[10];
 int productFileCount = 0;
 String introductionFiles[10];
 int introductionFileCount = 0;
+String goodbyeFiles[10];
+int goodbyeFileCount = 0;
 
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
@@ -420,6 +424,14 @@ void callback(char *topic, byte *message, unsigned int length) {
         robot.answer();
         audio.stopSong();  // Stop any ongoing audio
         playRandomAudio(introductionFiles, introductionFileCount, "introduction");
+      } else if (response == "goodbye" && currentState != SLEEP) {
+        Serial.println("Received 'goodbye' command");
+        currentState = GOODBYE;
+        stateStartTime = millis();
+        digitalWrite(LED_PIN, HIGH);
+        robot.happy();
+        audio.stopSong();  // Stop any ongoing audio
+        playRandomAudio(goodbyeFiles, goodbyeFileCount, "goodbye");
       }
 
       // Handle product label commands (only when in PRODUCT state)
@@ -624,6 +636,9 @@ void setup() {
   if (!SD.exists(INTRODUCTION_FOLDER)) {
     SD.mkdir(INTRODUCTION_FOLDER);
   }
+  if (!SD.exists(GOODBYE_FOLDER)) {
+    SD.mkdir(GOODBYE_FOLDER);
+  }
 
   // Load audio files
   loadAudioFiles(MUSIC_FOLDER, musicFiles, musicFileCount);
@@ -636,6 +651,7 @@ void setup() {
   loadAudioFiles(THINKING_FOLDER, thinkingFiles, thinkingFileCount);
   loadAudioFiles(PRODUCT_FOLDER, productFiles, productFileCount);
   loadAudioFiles(INTRODUCTION_FOLDER, introductionFiles, introductionFileCount);
+  loadAudioFiles(GOODBYE_FOLDER, goodbyeFiles, goodbyeFileCount);
   randomSeed(analogRead(0));
 
   // Initialize maintenance system after SD card is ready
@@ -668,11 +684,12 @@ void loop() {
   if (currentState == SLEEP) {
     robot.standBy();
     maintenance.checkSerialCommands();  // Check for maintenance commands during sleep
+    maintenance.keepSystemResponsive(); // Keep MQTT loop running in sleep mode
     return;
   }
 
   // Handle audio streaming - but exclude TRANSITION state from auto-transitioning to IDLE
-  if (currentState == PLAYING_RESPONSE || currentState == DANCE || currentState == HAPPY || currentState == MAD || currentState == SAD || currentState == GREETINGS || currentState == PRODUCT || currentState == PRODUCT_DETECTED || currentState == DETECTING_WAKE_WORD || currentState == TRANSITION || currentState == RECORDING_CONVERSATION || currentState == THINKING || currentState == INTRODUCTION) {
+  if (currentState == PLAYING_RESPONSE || currentState == DANCE || currentState == HAPPY || currentState == MAD || currentState == SAD || currentState == GREETINGS || currentState == PRODUCT || currentState == PRODUCT_DETECTED || currentState == DETECTING_WAKE_WORD || currentState == TRANSITION || currentState == RECORDING_CONVERSATION || currentState == THINKING || currentState == INTRODUCTION || currentState == GOODBYE) {
     if (currentTime - lastAudioTime >= 1) {
       lastAudioTime = currentTime;
       audio.loop();
@@ -819,8 +836,15 @@ void loop() {
               if (doc.containsKey("intent")) intent = doc["intent"].as<String>();
               if (doc.containsKey("response")) resp = doc["response"].as<String>();
               Serial.printf("[RECORDING_CONVERSATION] Server intent: %s, response: %s\n", intent.c_str(), resp.c_str());
-              // Cek intent untuk aksi
-              if (intent == "sleep") {
+              // Tambah intent goodbye
+              if (intent == "goodbye") {
+                currentState = GOODBYE;
+                stateStartTime = currentTime;
+                digitalWrite(LED_PIN, HIGH);
+                robot.happy();
+                audio.stopSong();
+                playRandomAudio(goodbyeFiles, goodbyeFileCount, "goodbye");
+              } else if (intent == "sleep") {
                 currentState = SLEEP;
                 stateStartTime = currentTime;
                 digitalWrite(LED_PIN, LOW);
@@ -940,6 +964,7 @@ void loop() {
       case PRODUCT:
       case PRODUCT_DETECTED:
       case INTRODUCTION:
+      case GOODBYE:
         break;
       case SLEEP:
         break;
