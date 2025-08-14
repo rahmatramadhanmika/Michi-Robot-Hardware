@@ -11,6 +11,8 @@
 #include "action.h"
 #include "maintenance.h"
 
+// Human detection session flag
+bool isHumanDetected = false;
 const uint32_t SAMPLE_RATE = 16000;
 const uint16_t SAMPLE_BITS = 16;
 const uint8_t CHANNELS = 1;
@@ -402,13 +404,18 @@ void callback(char *topic, byte *message, unsigned int length) {
         audio.stopSong();  // Stop any ongoing audio
         playRandomAudio(musicFiles, musicFileCount, "dance");
       } else if (response == "greetings" && currentState != SLEEP) {
-        Serial.println("Received 'greetings' command");
-        currentState = GREETINGS;
-        stateStartTime = millis();
-        digitalWrite(LED_PIN, HIGH);
-        robot.happy();
-        audio.stopSong();  // Stop any ongoing audio
-        playRandomAudio(greetingsFiles, greetingsFileCount, "greetings");
+        if (!isHumanDetected) {
+          Serial.println("Received 'greetings' command (first detection)");
+          currentState = GREETINGS;
+          stateStartTime = millis();
+          digitalWrite(LED_PIN, HIGH);
+          robot.happy();
+          audio.stopSong();  // Stop any ongoing audio
+          playRandomAudio(greetingsFiles, greetingsFileCount, "greetings");
+          isHumanDetected = true;
+        } else {
+          Serial.println("Human already detected, skipping greetings.");
+        }
       } else if (response == "deteksi" && currentState != SLEEP) {
         Serial.println("Received 'deteksi' command - entering product detection mode");
         currentState = PRODUCT;
@@ -432,6 +439,7 @@ void callback(char *topic, byte *message, unsigned int length) {
         robot.happy();
         audio.stopSong();  // Stop any ongoing audio
         playRandomAudio(goodbyeFiles, goodbyeFileCount, "goodbye");
+        isHumanDetected = false; // Reset session flag
       }
 
       // Handle product label commands (only when in PRODUCT state)
