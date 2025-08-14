@@ -46,7 +46,7 @@ unsigned long previousMillis = 0;
 const long interval = 15;  // Interval dasar untuk perhitungan kecepatan
 
 void setup() {
-  myservo.attach(4);          // Servo terhubung ke pin 9
+  myservo.attach(15);          // Servo terhubung ke pin 9
   myservo.write(currentPos);  // Set posisi awal
   Serial.begin(115200);
   Serial.println("Servo Smooth Control dengan millis()");

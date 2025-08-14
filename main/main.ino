@@ -25,6 +25,7 @@ const char *DETECTING_FOLDER = "/detecting";
 const char *HEARING_FOLDER = "/hearing";
 const char *THINKING_FOLDER = "/thinking";
 const char *PRODUCT_FOLDER = "/product";
+const char *INTRODUCTION_FOLDER = "/introduction";
 
 #define I2S_WS 25
 #define I2S_SD 33
@@ -50,12 +51,14 @@ const char *PRODUCT_FOLDER = "/product";
 
 const char *ssid = "iPhone 6s";
 const char *password = "hihiha123";
-// const char *serverUrl = "http://api.michi-robot.site/process_input";
-// const char *wakeWordUrl = "http://api.michi-robot.site/detect_wakeword";
-// const char *streamURL = "http://api.michi-robot.site/audio_response";
-const char *serverUrl = "http://172.20.10.2:5000/process_input";
-const char *wakeWordUrl = "http://172.20.10.2:5000/detect_wakeword";
-const char *streamURL = "http://172.20.10.2:5000/audio_response";
+// const char *ssid = "OPPO A31 Lite";
+// const char *password = "12345678";
+const char *serverUrl = "http://api.michi-robot.site/process_input";
+const char *wakeWordUrl = "http://api.michi-robot.site/detect_wakeword";
+const char *streamURL = "http://api.michi-robot.site/audio_response";
+// const char *serverUrl = "http://172.20.10.2:5000/process_input";
+// const char *wakeWordUrl = "http://172.20.10.2:5000/detect_wakeword";
+// const char *streamURL = "http://172.20.10.2:5000/audio_response";
 
 char *MQTT_SERVER = "broker.emqx.io";
 int MQTT_PORT = 1883;
@@ -75,6 +78,7 @@ enum State {
   GREETINGS,
   PRODUCT,
   PRODUCT_DETECTED,
+  INTRODUCTION,
 };
 
 unsigned long lastSoundTime = 0;
@@ -106,6 +110,8 @@ String thinkingFiles[10];
 int thinkingFileCount = 0;
 String productFiles[10];
 int productFileCount = 0;
+String introductionFiles[10];
+int introductionFileCount = 0;
 
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
@@ -406,6 +412,14 @@ void callback(char *topic, byte *message, unsigned int length) {
         digitalWrite(LED_PIN, HIGH);
         robot.idle();      // Use idle action for product state
         audio.stopSong();  // Stop any ongoing audio
+      } else if (response == "introduction" && currentState != SLEEP) {
+        Serial.println("Received 'introduction' command");
+        currentState = INTRODUCTION;
+        stateStartTime = millis();
+        digitalWrite(LED_PIN, HIGH);
+        robot.answer();
+        audio.stopSong();  // Stop any ongoing audio
+        playRandomAudio(introductionFiles, introductionFileCount, "introduction");
       }
 
       // Handle product label commands (only when in PRODUCT state)
@@ -607,6 +621,9 @@ void setup() {
   if (!SD.exists(PRODUCT_FOLDER)) {
     SD.mkdir(PRODUCT_FOLDER);
   }
+  if (!SD.exists(INTRODUCTION_FOLDER)) {
+    SD.mkdir(INTRODUCTION_FOLDER);
+  }
 
   // Load audio files
   loadAudioFiles(MUSIC_FOLDER, musicFiles, musicFileCount);
@@ -618,6 +635,7 @@ void setup() {
   loadAudioFiles(HEARING_FOLDER, hearingFiles, hearingFileCount);
   loadAudioFiles(THINKING_FOLDER, thinkingFiles, thinkingFileCount);
   loadAudioFiles(PRODUCT_FOLDER, productFiles, productFileCount);
+  loadAudioFiles(INTRODUCTION_FOLDER, introductionFiles, introductionFileCount);
   randomSeed(analogRead(0));
 
   // Initialize maintenance system after SD card is ready
@@ -654,7 +672,7 @@ void loop() {
   }
 
   // Handle audio streaming - but exclude TRANSITION state from auto-transitioning to IDLE
-  if (currentState == PLAYING_RESPONSE || currentState == DANCE || currentState == HAPPY || currentState == MAD || currentState == SAD || currentState == GREETINGS || currentState == PRODUCT || currentState == PRODUCT_DETECTED || currentState == DETECTING_WAKE_WORD || currentState == TRANSITION || currentState == RECORDING_CONVERSATION || currentState == THINKING) {
+  if (currentState == PLAYING_RESPONSE || currentState == DANCE || currentState == HAPPY || currentState == MAD || currentState == SAD || currentState == GREETINGS || currentState == PRODUCT || currentState == PRODUCT_DETECTED || currentState == DETECTING_WAKE_WORD || currentState == TRANSITION || currentState == RECORDING_CONVERSATION || currentState == THINKING || currentState == INTRODUCTION) {
     if (currentTime - lastAudioTime >= 1) {
       lastAudioTime = currentTime;
       audio.loop();
@@ -671,11 +689,6 @@ void loop() {
           Serial.println("Product state audio finished - staying in PRODUCT state");
           audioFinished = false;
           // Stay in PRODUCT state, don't transition to IDLE
-        } else if (currentState == THINKING) {
-          Serial.println("Thinking audio finished - continuing thinking state");
-          audioFinished = false;
-          // Stay in THINKING state, don't transition to IDLE
-          // Optionally play another thinking audio if needed
         } else if (currentState != DETECTING_WAKE_WORD && currentState != RECORDING_CONVERSATION && currentState != TRANSITION) {
           Serial.println("Audio stream finished.");
           audioFinished = false;
@@ -782,29 +795,16 @@ void loop() {
           robot.thinking();  // Set thinking animation during upload
           audio.stopSong();  // Stop any ongoing audio
           playRandomAudio(thinkingFiles, thinkingFileCount, "thinking");
-          
           // Give time for thinking animation and audio to start
           for (int i = 0; i < 50; i++) {
             robot.update();  // Update thinking animation
             audio.loop();    // Keep audio playing
             delay(50);       // Small delay to show animation
           }
-          
+          // Upload audio to server, but DO NOT change state to PLAYING_RESPONSE here
           String response = uploadToServer(FILENAME, serverUrl);
-          if (!response.isEmpty()) {
-            currentState = PLAYING_RESPONSE;
-            stateStartTime = currentTime;
-            digitalWrite(LED_PIN, HIGH);
-            robot.answer();
-            audio.stopSong();  // Stop thinking audio before streaming response
-            if (!connectToAudioStream()) {
-              Serial.println("Failed to connect to the audio stream.");
-              currentState = IDLE;
-              digitalWrite(LED_PIN, LOW);
-              lastActionTime = currentTime;
-              robot.idle();
-            }
-          } else {
+          // Do not process response here, just wait for MQTT callback to handle next state
+          if (response.isEmpty()) {
             currentState = IDLE;
             digitalWrite(LED_PIN, LOW);
             lastActionTime = currentTime;
@@ -823,6 +823,7 @@ void loop() {
       case GREETINGS:
       case PRODUCT:
       case PRODUCT_DETECTED:
+      case INTRODUCTION:
         break;
       case SLEEP:
         break;

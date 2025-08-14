@@ -28,8 +28,8 @@ private:
   bool increasing = true;
   unsigned long previousMillis = 0;
   const long interval = 15;
-  const long danceInterval = 10;
-  const long idleInterval = 10;
+  const long danceInterval = 7;
+  const long idleInterval = 1;
   const long madInterval = 50;
 
   int targetLeft = 90;
