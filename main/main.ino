@@ -689,6 +689,11 @@ void loop() {
           Serial.println("Product state audio finished - staying in PRODUCT state");
           audioFinished = false;
           // Stay in PRODUCT state, don't transition to IDLE
+        } else if (currentState == THINKING) {
+          Serial.println("Thinking audio finished - continuing thinking state");
+          audioFinished = false;
+          // Stay in THINKING state, don't transition to IDLE
+          // Optionally play another thinking audio if needed
         } else if (currentState != DETECTING_WAKE_WORD && currentState != RECORDING_CONVERSATION && currentState != TRANSITION) {
           Serial.println("Audio stream finished.");
           audioFinished = false;
@@ -795,16 +800,127 @@ void loop() {
           robot.thinking();  // Set thinking animation during upload
           audio.stopSong();  // Stop any ongoing audio
           playRandomAudio(thinkingFiles, thinkingFileCount, "thinking");
+          
           // Give time for thinking animation and audio to start
           for (int i = 0; i < 50; i++) {
             robot.update();  // Update thinking animation
             audio.loop();    // Keep audio playing
             delay(50);       // Small delay to show animation
           }
-          // Upload audio to server, but DO NOT change state to PLAYING_RESPONSE here
+          
           String response = uploadToServer(FILENAME, serverUrl);
-          // Do not process response here, just wait for MQTT callback to handle next state
-          if (response.isEmpty()) {
+          if (!response.isEmpty()) {
+            // Parse response JSON dan cek intent
+            StaticJsonDocument<384> doc;
+            DeserializationError error = deserializeJson(doc, response);
+            String intent = "";
+            String resp = "";
+            if (!error) {
+              if (doc.containsKey("intent")) intent = doc["intent"].as<String>();
+              if (doc.containsKey("response")) resp = doc["response"].as<String>();
+              Serial.printf("[RECORDING_CONVERSATION] Server intent: %s, response: %s\n", intent.c_str(), resp.c_str());
+              // Cek intent untuk aksi
+              if (intent == "sleep") {
+                currentState = SLEEP;
+                stateStartTime = currentTime;
+                digitalWrite(LED_PIN, LOW);
+                audio.stopSong();
+                robot.standBy();
+              } else if (intent == "talk" || intent == "audio") {
+                currentState = PLAYING_RESPONSE;
+                stateStartTime = currentTime;
+                digitalWrite(LED_PIN, HIGH);
+                robot.answer();
+                audio.stopSong();  // Stop thinking audio before streaming response
+                if (!connectToAudioStream()) {
+                  Serial.println("Failed to connect to the audio stream.");
+                  currentState = IDLE;
+                  digitalWrite(LED_PIN, LOW);
+                  lastActionTime = currentTime;
+                  robot.idle();
+                }
+              } else if (intent == "mad") {
+                currentState = MAD;
+                stateStartTime = currentTime;
+                digitalWrite(LED_PIN, HIGH);
+                robot.mad();
+                audio.stopSong();
+                playRandomAudio(madFiles, madFileCount, "mad");
+              } else if (intent == "sad") {
+                currentState = SAD;
+                stateStartTime = currentTime;
+                digitalWrite(LED_PIN, HIGH);
+                robot.sad();
+                audio.stopSong();
+                playRandomAudio(sadFiles, sadFileCount, "sad");
+              } else if (intent == "happy") {
+                currentState = HAPPY;
+                stateStartTime = currentTime;
+                digitalWrite(LED_PIN, HIGH);
+                robot.happy();
+                audio.stopSong();
+                playRandomAudio(happyFiles, happyFileCount, "happy");
+              } else if (intent == "dance") {
+                currentState = DANCE;
+                stateStartTime = currentTime;
+                digitalWrite(LED_PIN, HIGH);
+                robot.dance();
+                audio.stopSong();
+                playRandomAudio(musicFiles, musicFileCount, "dance");
+              } else if (intent == "greetings") {
+                currentState = GREETINGS;
+                stateStartTime = currentTime;
+                digitalWrite(LED_PIN, HIGH);
+                robot.happy();
+                audio.stopSong();
+                playRandomAudio(greetingsFiles, greetingsFileCount, "greetings");
+              } else if (intent == "deteksi") {
+                currentState = PRODUCT;
+                stateStartTime = currentTime;
+                digitalWrite(LED_PIN, HIGH);
+                robot.idle();
+                audio.stopSong();
+              } else if (intent == "introduction") {
+                currentState = INTRODUCTION;
+                stateStartTime = currentTime;
+                digitalWrite(LED_PIN, HIGH);
+                robot.answer();
+                audio.stopSong();
+                playRandomAudio(introductionFiles, introductionFileCount, "introduction");
+              } else if (intent.length() > 0) {
+                // Jika intent adalah label produk
+                if (currentState == PRODUCT) {
+                  playProductAudio(intent);
+                } else {
+                  // Fallback ke IDLE
+                  currentState = IDLE;
+                  digitalWrite(LED_PIN, LOW);
+                  lastActionTime = currentTime;
+                  robot.idle();
+                }
+              } else {
+                // Jika tidak ada intent, fallback ke IDLE
+                currentState = IDLE;
+                digitalWrite(LED_PIN, LOW);
+                lastActionTime = currentTime;
+                robot.idle();
+              }
+            } else {
+              // Jika gagal parse JSON, fallback ke PLAYING_RESPONSE (kompatibilitas lama)
+              currentState = PLAYING_RESPONSE;
+              stateStartTime = currentTime;
+              digitalWrite(LED_PIN, HIGH);
+              robot.answer();
+              audio.stopSong();
+              if (!connectToAudioStream()) {
+                Serial.println("Failed to connect to the audio stream.");
+                currentState = IDLE;
+                digitalWrite(LED_PIN, LOW);
+                lastActionTime = currentTime;
+                robot.idle();
+              }
+            }
+          } else {
             currentState = IDLE;
             digitalWrite(LED_PIN, LOW);
             lastActionTime = currentTime;
