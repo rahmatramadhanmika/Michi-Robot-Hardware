@@ -52,10 +52,12 @@ const char *GOODBYE_FOLDER = "/goodbye";
 #define SILENCE_DURATION 3000
 #define LED_PIN 2
 
-const char *ssid = "iPhone 6s";
-const char *password = "hihiha123";
+// const char *ssid = "iPhone 6s";
+// const char *password = "hihiha123";
 // const char *ssid = "OPPO A31 Lite";
 // const char *password = "12345678";
+const char *ssid = "Starbucks PIK 2";
+const char *password = "12345678";
 const char *serverUrl = "http://api.michi-robot.site/process_input";
 const char *wakeWordUrl = "http://api.michi-robot.site/detect_wakeword";
 const char *streamURL = "http://api.michi-robot.site/audio_response";
@@ -693,6 +695,7 @@ void loop() {
     robot.standBy();
     maintenance.checkSerialCommands();  // Check for maintenance commands during sleep
     maintenance.keepSystemResponsive(); // Keep MQTT loop running in sleep mode
+    delay(10);
     return;
   }
 
@@ -852,6 +855,7 @@ void loop() {
                 robot.happy();
                 audio.stopSong();
                 playRandomAudio(goodbyeFiles, goodbyeFileCount, "goodbye");
+                isHumanDetected = false;
               } else if (intent == "sleep") {
                 currentState = SLEEP;
                 stateStartTime = currentTime;
